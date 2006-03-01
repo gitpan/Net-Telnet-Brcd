@@ -1,0 +1,7 @@
+Changes
+Makefile.PL
+MANIFEST
+README
+t/Net-Telnet-Brcd.t
+lib/Net/Telnet/Brcd.pm
+META.yml                                 Module meta-data (added by MakeMaker)
