@@ -1,43 +1,26 @@
+#!/usr/local/bin/perl
+# @(#)Brcd.pm	1.3
+
 package Net::Telnet::Brcd;
 
-# @(#)Brcd.pm	1.10
-
-=pod
-
-=head1 NAME
-
-Net::Telnet::Brcd - Module d'interrogation des switchs Brocade
-
-=head1 SYNOPSIS
-
-    use Net::Telnet::Brcd;
-
-    my $sw = new Net::Telnet::Brcd;
-
-    $sw->connect($sw_name,$user,$pass) or die "\n";
-
-    %wwn_port = $sw->switchShow(-bywwn=>1);
-    my @lines = $sw->cmd("configShow");
-
-=head1 DESCRIPTION
-
-Bibliothèque d'interrogation via Telnet de switch Brocade.
-
-=cut
-
+use 5.008;
 use Net::Telnet;
 use Carp;
+use Data::Dumper;
+use Socket;
+
 use strict;
 use constant DEBUG => 0;
 
 require Exporter;
 
 # Variables de gestion du package
-our %EXPORT_TAGS = ( 'all' => [ qw() ] );
-our @EXPORT_OK   = ( @{ $EXPORT_TAGS{'all'} } );
-our @EXPORT      = qw();
-our $VERSION     = 0.01;
-our @ISA         = qw(Exporter);
+our %EXPORT_TAGS  = ( 'all' => [ qw() ] );
+our @EXPORT_OK    = ( @{ $EXPORT_TAGS{'all'} } );
+our @EXPORT       = qw();
+
+our $VERSION      = 1.3 * 0.1;
+our @ISA          = qw(Exporter);
 
 # Variables privées
 my $_brcd_prompt     = '\w+:\w+>\s+';
@@ -47,20 +30,11 @@ my $_brcd_wwn_re     = join(":",("[0-9A-Za-z][0-9A-Za-z]") x 8);
 my $_brcd_port_id    = qr/\d+,\d+/;
 my $_brcd_timeout    = 20; # secondes
 
-=head2 new
-
-    my $brcd = new Net::Telnet::Brcd;
-
-Initialise un objet Brocade. A faire avant toute commande.
-
-=cut
-
 sub new {
     my ($class)=shift;
 
-    $class = ref($class) || $class;
-
-    my $self={};
+    $class   = ref($class) || $class;
+    my $self = {};
 
     $self->{TELNET} = new Net::Telnet (Timeout => ${_brcd_timeout},
                                        Prompt  => "/${_brcd_prompt}/",
@@ -72,20 +46,12 @@ sub new {
     return $self;
 }
 
-=head2 connect
-
-    $brcd->connect($switch,$user,$pass);
-
-Se connecte à un switch Brocade par la session Telnet. Renvoie undef en cas d'erreur.
-A faire avant toute commande sur un switch.
-
-=cut
-
 sub connect {
     my ($self,$switch,$user,$pass)=@_;
 
-    $user ||= $ENV{BRCD_USER} || "admin";
-    $pass ||= $ENV{BRCD_PASS};
+    $user   ||= $ENV{BRCD_USER} || "admin";
+    $pass   ||= $ENV{BRCD_PASS};
+    $switch ||= $ENV{BRCD_SWITCH};
 
     unless ($switch) {
         carp __PACKAGE__,": Need switch \@IP or name.\n";
@@ -110,23 +76,6 @@ sub connect {
     return 1;
 }
 
-=head2 cmd
-
-    my @results=$brcd->cmd("configShow");
-
-Envoie une commande au switch et récupère les lignes de sorties sans les \r\n.
-Chaque ligne de sortie est une ligne de tableau.
-
-Dans le cas ou la ligne de commande est envoyée sous forme de tableau:
-
-    my @results=$brcd->cmd("aliAdd","toto",":00:00:0:5:4:54:4:5");
-
-La commande est lancée et générée de la façon suivante:
-
-    aliAdd "toto", ":00:00:0:5:4:54:4:5"
-
-=cut
-
 sub cmd {
     my ($self,$cmd,@cmd)=@_;
     
@@ -134,14 +83,14 @@ sub cmd {
         $cmd.=" \"".join("\", \"",@cmd)."\"";
     }
     
-    warn "Execute: $cmd\n";
+    DEBUG && warn "Execute: $cmd\n";
 
     unless ($self->{TELNET}->print($cmd)) {
         carp __PACKAGE__,": Cannot send cmd '$cmd': $!\n";
         return;
     }
     # Lecture en passant les continue
-    @cmd = ();
+    @cmd = undef;
     CMD: while (1) {
        my ($str,$match) = $self->{TELNET}->waitfor(${_brcd_prompt_re});
 
@@ -157,26 +106,6 @@ sub cmd {
 
     return @cmd;
 }
-
-=head2 aliShow
-
-    my %alias_to_wwn = $brcd->aliShow();
-
-Passe la commande aliShow et génère un haschage contenant comme clé les alias
-et comme valeur les WWN.
-
-Si l'option -bywwn est activée:
-
-    my %wwn_to_alias = $brcd->aliShow(-bywwn => 1);
-
-c'est l'inverse qui est renvoyée.
-
-Par  défaut, l'option -onlywwn est activée. Ceci indique que les ports zonés
-par port ne sont pas renvoyés. Dans l'autre cas, ils le sont.
-
-Avec l'option -byport, seuls les alias contenant des ports sont renvoyés.
-
-=cut
 
 sub aliShow {
     my $self=shift;
@@ -195,7 +124,11 @@ sub aliShow {
 
     #unless ($args{'-cache'} and exists $fab->{WWN} and exists $fab->{ALIAS}) {
     my ($alias);
+    $fab->{PORTID} = {};
+    $fab->{WWN}    = {};
+    $fab->{ALIAS}  = {};
     foreach ($self->cmd("aliShow \"*\"")) {
+        next unless $_;
         if (m/alias:\s+(\w+)/) {
             $alias=$1;
             next;
@@ -217,33 +150,12 @@ sub aliShow {
         }
     }
     #}
+    DEBUG && warn Dumper($fab);
 
     return ($args{'-bywwn'})  ? (%{$fab->{WWN}})    :
            ($args{'-byport'}) ? (%{$fab->{PORTID}}) :                  
                                 (%{$fab->{ALIAS}});
 }
-
-=head2 zoneShow
-
-    my %zone = $brcd->zoneShow();
-
-La commande renvoie grâce à la commande zoneShow un haschage contenant les
-membres de chaque zone. Chaque clé de haschage correspond à une zone. Une clé
-contient chaque membre sous forme de tableau associatif. Exemple:
-
-    my %zone = $brcd->zoneShow();
-
-    foreach my $zone (%zone) {
-        print "$zone:\n\t";
-        print join("; ", keys %{$zone{$zone}} ),"\n";
-    }
-
-Si l'option -bymember est utilisé, c'est l'inverse qui est présenté. C'est à dire
-à quelle zone appartient un membre. La méthode d'accès est la même.
-
-Si cette méthode d'accès n'est pas aisée, on peut utiliser les fonctions suivantes.
-
-=cut
 
 sub zoneShow {
     my $self=shift;
@@ -281,17 +193,6 @@ sub zoneShow {
     }
 }
 
-=head2 zoneMember
-
-    my @member = $brcd->zoneMember("z_sctxp004_0");
-
-Renvoie la liste des membres d'une zone. Un membre est un alias
-ou un WWN suivant la méthode utilisée.
-
-Cette fonction nécessite d'avoir exécuté la commande $brcd->zoneShow précédemment.
-
-=cut
-
 sub zoneMember {
     my ($self,$zone)=@_;
 
@@ -303,17 +204,6 @@ sub zoneMember {
     return sort keys %{$fab->{ZONE}->{$zone}};
 }
 
-=head2 memberZone
-
-    my @zones = $brcd->memberZone("w_sctxp004_0");
-
-Renvoie la liste des zones auquel appartient un membre. Un membre est un alias
-ou un WWN suivant la méthode utilisée.
-
-Cette fonction nécessite d'avoir exécuté la commande $brcd->zoneShow précédemment.
-
-=cut
-
 sub memberZone {
     my ($self,$member)=@_;
 
@@ -324,30 +214,6 @@ sub memberZone {
 
     return sort keys %{$fab->{MEMBER}->{$member}};
 }
-
-=head2 switchShow
-
-    my %port = $brcd->switchShow();
-
-Cette commande passe la commande switchShow sur le switch physique de connexion.
-Ceci permet de donner l'état de chaque port suivant la structure suivante:
-
-    $port{<port number}->{SPEED}  = <2G|1G|...>
-                       ->{STATUS} = <OnLine|NoLight|...>
-                       ->{SLOT}   = numéro de la blade
-                       ->{NUMBER} = numéro du port dans la blade
-                       ->{TYPE}   = <E-Port|F-Port|...>
-                       ->{WWN}    si connecté
-
-Avec l'option -bywwn, la commande renvoie simplement la liste des WWN et les numéros
-de port associés.
-
-    my %wwn_to_port = $brcd->switchShow(-bywwn => 1);
-
-L'optoin -withportname peut être activée, ceci implique de passer la commande portName 
-à chaque port. Le temps de l'exécution est fortement augmenté.
-
-=cut
 
 sub switchShow {
     my $self=shift;
@@ -365,28 +231,49 @@ sub switchShow {
     my (%wwn);
     unless ($args{'-cache'} and exists $fab->{PORT}) {
         foreach ($self->cmd("switchShow")) {
+            next unless $_;
 DEBUG && warn  "SWITCHSHOW   : $_\n";
             if (m/^(\w+):\s+(.+)/) {
                 $fab->{$1} = $2;
                 next;
             }
-            if (m/^(?:port)?\s+(\d+):?\s+(?:(\d+)\s+(\d+)\s*)?id\s+(\w+)\s+(\w+)\s*(.*)/) {
-DEBUG && warn  "SWITCHSHOW-RE: #$1# #$2# #$3# #$4# #$5# #$6#\n";
-                my $port_number      = $1;
-                my $port_info        = $6;
-                my $port_slot        = $2;
-                my $port_slot_number = $3;
-
-                $fab->{PORT}->{$port_number}->{SPEED}    = $4;
-                $fab->{PORT}->{$port_number}->{STATUS}   = $5;
-                $fab->{PORT}->{$port_number}->{SLOT}     = $port_slot        if defined $port_slot;
-                $fab->{PORT}->{$port_number}->{NUMBER}   = $port_slot_number if defined $port_slot_number;
+#12000 :     0    1    0   id    2G   Online    E-Port  (Trunk port, master is Slot  1 Port
+#4100  :     0   0   id    2G   Online    E-Port  10:00:00:05:1e:35:f6:e5 "PS4100A"       
+#3800  :port  0: id 2G Online         F-Port 50:06:01:60:10:60:04:26
+#48000 :  13    1   13   0a0d00   id    N2   Online           F-Port  10:00:00:00:c9:35:99:4b
+#48000 : 12    1   12   0a0c00   id    N4   No_Light      
+            if (m{
+                ^[port\s]*(\d+):? \s*        # Le port number forme ok:port 1: ; 12;144
+                (?:
+                    (?:
+                      (\d+)\s+               # Le slot que sur les directeurs
+                    )?
+                    (\d+)\s*                 # Le port dans le slot
+                )?
+                ([09a-zA-Z]+)?               # Adresse FC, que à partir de FabOS 5.2.0a
+                \s+ id \s+                   # Le mot magique qui dit que c'est la bonne ligne
+                [a-zA-Z]*(\d+)[a-zA-Z]*  \s+ # Vitesse du port plusieurs format à priori toujours en Go/s
+                (\w+)  \s*                   # Status du port
+                (.*)                         # Toutes les autres informations (notamment le WWN si connectés)
+            }mxs) {
+DEBUG && warn  "SWITCHSHOW-RE: #$1# #$2# #$3# #$4# #$5# #$6# #$7#\n";
+                # Récupération des champs, les champs dans les même ordre que les $
+                my @fields = qw(SLOT NUMBER ADDRESS SPEED STATUS INFO);              
+                my $port_number  = $1;
+                my $port_info    = $7;  
+                foreach my $re ($2, $3, $4, $5, $6, $7) {
+                    my $field = shift @fields;
+                    if (defined $re) {
+                        $fab->{PORT}->{$port_number}->{$field} = $re;
+                    }
+                }
                 $fab->{PORT}->{$port_number}->{PORTNAME} = $self->portShow($port_number) if $args{-withportname};
 
                 if ($port_info and $port_info =~ m/^(\w-\w+)\s+(${_brcd_wwn_re})?/) {
                     my ($type, $wwn) = ($1,$2);
                     $fab->{PORT}->{$port_number}->{TYPE} = $type;
                     $fab->{PORT}->{$port_number}->{WWN}  = $wwn   if $wwn;
+                    
 
                     if ($type eq "F-Port") {
                         $wwn{$wwn} = $port_number;
@@ -398,20 +285,6 @@ DEBUG && warn  "SWITCHSHOW-RE: #$1# #$2# #$3# #$4# #$5# #$6#\n";
 
     return ($args{'-bywwn'})?(%wwn):( (exists $fab->{PORT}) ? %{$fab->{PORT}} : undef);
 }
-
-=head2 toSlot
-
-    my ($slot,$slot_number) = $brcd->toSlot(36);
-    my $slot_address        = $brcd->toSlot(36);
-
-Cette commande fonctionne que si la commande switchShow a déjà été passée. Elle
-donne pour un switch type DIRECTOR le slot et le numéro dans le slot pour un 
-numéro de port donné. Pour un switch classique, elle ne renvoie rien.
-
-En contexte scalaire, elle renvoie directement slot/slot_number (format de la
-commande portShow).
-
-=cut
 
 sub toSlot {
     my $self        = shift;
@@ -443,23 +316,6 @@ DEBUG && warn "TOSLOT: ",$fab->{PORT}->{$port_number}->{SLOT}."/".$fab->{PORT}->
                           $fab->{PORT}->{$port_number}->{SLOT}."/".$fab->{PORT}->{$port_number}->{NUMBER};
 }
 
-=head2 portShow
-
-    my %port     = $brcd->portShow($port_number);
-    my $portname = $brcd->portShow($port_number);
-
-Cette commande fonctionne que si la commande switchShow a déjà été passée.
-
-Elle utilise la commande toSlot pour passer la commande portShow automatiquement quelque
-soit le type de switch SAN.
-
-En contexte de liste, la commande renvoie un haschage ou la clé
-est le paramètre (portName par exemple) et la valeur la valeur associée.
-
-Dans un contexte scalaire, la commande portShow renvoie le portname.
-
-=cut
-
 sub portShow {
     my $self        = shift;
     my $port_number = shift;
@@ -468,7 +324,7 @@ sub portShow {
     my $fab      = $self->{FABRICS}->{$fab_name};
     
 DEBUG && warn "PORTSHOW-PORTNUMBER: $port_number\n";
-    $port_number = $self->toSlot($port_number) || $port_number;
+       $port_number = $self->toSlot($port_number) || $port_number;
 DEBUG && warn "PORTSHOW-PORTNUMBER: $port_number\n";
     my (%port, $param, $value, $portname);
     
@@ -507,33 +363,11 @@ DEBUG && warn "PORTSHOW: param #$param# value #$value#\n";
     return (wantarray())?(%port):($portname);
 }
 
-=head2 output
-
-    print $brcd->output();
-
-Retourne la sortie d'une commande passé par $brcd->cmd("...") sous forme
-de chaîne de caractére directement imprimable à l'écran ou dans un fichier.
-
-=cut
-
 sub output {
     my $self=shift;
 
     return join("\n",@{$self->{OUTPUT}})."\n";
 }
-
-=head2 wwn_re
-
-    my $wwn_re = $brcd->wwn_re();
-
-    if (m/($wwn_re)/) {
-        ...
-    }
-
-Retourne une chaîne de caractère correspondant à l'expression régulière de
-recherche d'un WWN.
-
-=cut
 
 sub wwn_re {
     return ${_brcd_wwn_re};
@@ -545,16 +379,6 @@ sub DESTROY {
     $self->{TELNET}->close();
 }
 
-=head2 fabricShow
-
-    my %fabric = $brcd->fabricShow();
-
-Retourne un haschage composé de tous les switchs présents dans une fabric. La valeur contient
-le DOMAIN et l'IP et la fabric au sens DNS long du switch en question.
-
-=cut
-use Socket;
-
 sub fabricShow {
     my $self=shift;
     my %args=(
@@ -563,17 +387,28 @@ sub fabricShow {
           );
     my (%fabric,%domain);
     
-    foreach ($self->cmd("fabricShow")) {
+    foreach ($self->cmd('fabricShow')) {
+        next unless $_;
 DEBUG && warn "DEBUG:: $_\n";
-        if (m/^\s*(\d+):\s+\w+\s+${_brcd_wwn_re}\s+(\d+\.\d+\.\d+\.\d+)\s+\d+\.\d+\.\d+\.\d+\s+>?"([^"]+)/) {
-            my ($domain_id, $switch_ip, $switch_name) = ($1, $2, $3);
-            $domain{$domain_id}->{NAME}     = $switch_name;
-            $domain{$domain_id}->{IP}       = $switch_ip;
-            $domain{$domain_id}->{FABRIC}   = gethostbyaddr(inet_aton($switch_ip), AF_INET);
-            $fabric{$switch_name}->{DOMAIN} = $domain_id;
-            $fabric{$switch_name}->{IP}     = $switch_ip;
-            $fabric{$switch_name}->{FABRIC} = $domain{$domain_id}->{FABRIC};
-            $fabric{$domain{$domain_id}->{FABRIC}} = $switch_name;
+        if (m{
+            ^\s* (\d+) : \s+ \w+ \s+  # Domain id + identifiant FC
+            ${_brcd_wwn_re} \s+       # WWN switch
+            (\d+\.\d+\.\d+\.\d+) \s+  # Adresse IP switch
+            \d+\.\d+\.\d+\.\d+   \s+  # Adresse IP FC switch (FCIP)
+            (>?)"([^"]+)              # Master, nom du switch
+        }msx) {
+            my ($domain_id, $switch_ip, $switch_master, $switch_name) = ($1, $2, $3, $4);
+            my $switch_host = gethostbyaddr(inet_aton($switch_ip), AF_INET);
+            my @fields      = qw(DOMAIN IP MASTER FABRIC NAME MASTER);
+            foreach my $re ($domain_id, $switch_ip, $switch_master, $switch_host, $switch_name) {
+                my $field = shift @fields;
+                if ($re) {
+                    $domain{$domain_id}->{$field}   = $re;
+                    $fabric{$switch_name}->{$field} = $re;
+                } 
+            }
+            
+            $fabric{$switch_host} = $switch_name if $switch_host;
         }
     }
     
@@ -581,30 +416,11 @@ DEBUG && warn "DEBUG:: $_\n";
                                 (%fabric);
 }
 
-=head2 currentFabric
-
-    my $dns_fabric = $brcd->currentFabric();
-
-Retourne le nom DNS de la fabric.
-
-=cut
-
-
 sub currentFabric {
     my $self = shift;
     
     return $self->{FABRIC};
 }
-
-=head2 isWwn
-
-    if ($brcd->isWwn($str)) {
-        ...
-    }
-
-Teste une chaine et vérifie que c'est un WWN.
-
-=cut
 
 
 sub isWwn {
@@ -614,16 +430,6 @@ sub isWwn {
     ($wwn =~ m/^${_brcd_wwn_re}/)?(return 1):(return);
     
 }
-
-=head2 portAlias
-
-    my ($domain, $port_number) = $brcd->portAlias("199,6");
-
-Découpe une chaîne au format zoning par port en domaine et numéro de port
-dans le swtich.
-
-=cut
-
 
 sub portAlias {
     my $self = shift;
@@ -637,18 +443,220 @@ sub portAlias {
 
 1;
 
+__END__
+
+=pod
+
+=head1 NAME
+
+Net::Telnet::Brcd - Perl libraries to contact Brocade switch
+
+=head1 SYNOPSIS
+
+    use Net::Telnet::Brcd;
+
+    my $sw = new Net::Telnet::Brcd;
+
+    $sw->connect($sw_name,$user,$pass) or die "\n";
+
+    %wwn_port = $sw->switchShow(-bywwn=>1);
+    my @lines = $sw->cmd("configShow");
+
+=head1 DESCRIPTION
+
+Perl libraries to contact Brocade switch with a telnet session. You could set this
+environment variable to simplify coding:
+
+=over 4
+
+=item C<BRCD_USER>
+
+login name
+
+=item C<BRCD_PASS>
+
+login password
+
+=item C<BRCD_SWITCH>
+
+switch name or IP address
+
+=back
+
+=head1 FUNCTIONS
+
+=head2 new
+
+    my $brcd = new Net::Telnet::Brcd;
+
+Initialize Brocade object. No arguments needed.
+
+=head2 connect
+
+    $brcd->connect($switch,$user,$pass);
+
+Connect to a Brocade switch with a telnet session. Return undef on error.
+Do it before any switch command.
+
+The object '$brcd' store the telnet session. If you want simultaneous connection
+you need an other object.
+
+=head2 cmd
+
+    my @results=$brcd->cmd("configShow");
+
+Send a Brocade command to the switch and return all the lines. Line are cleaned (no \r \n).
+
+If command parameters is given by array:
+
+    my @results=$brcd->cmd("aliAdd","toto",":00:00:0:5:4:54:4:5");
+
+The command generated are:
+
+    aliAdd "toto", ":00:00:0:5:4:54:4:5"
+
+=head2 aliShow
+
+    my %alias_to_wwn = $brcd->aliShow();
+
+Send command aliShow all and return a hash with C<key> as alias and WWN as value. If you use
+option C<-bywwn>, B<key> is WWN and value is alias:
+
+    my %wwn_to_alias = $brcd->aliShow(-bywwn => 1);
+
+By default, option C<-onlywwn> is activated. The command get only WWN mapping. If you use
+alias with port number use option C<-byport => 1>. If you have mixed alias, desactivate C<-onlywwn => 0>.
+
+=head2 zoneShow
+
+    my %zone = $brcd->zoneShow();
+
+Return a hash with one key is a zone and value an array of alias member or WWN or ports.
+
+    my %zone = $brcd->zoneShow();
+
+    foreach my $zone (%zone) {
+        print "$zone:\n\t";
+        print join("; ", keys %{$zone{$zone}} ),"\n";
+    }
+
+If you set option C<-bymember=1>, you have a hash with key a member and value an array of
+zones where member exists.
+
+It's important to run this command before using the followings functions.
+
+=head2 zoneMember
+
+    my @member = $brcd->zoneMember("z_sctxp004_0");
+
+Return an array of member of one zone. Need to execute C<$brcd->zoneShow> before.
+
+=head2 memberZone
+
+    my @zones = $brcd->memberZone("w_sctxp004_0");
+
+Return an array of zones where member exist. Need to execute C<$brcd->zoneShow> before.
+
+=head2 switchShow
+
+    my %port = $brcd->switchShow();
+
+This function send the switchShow command on the connected switch (see only one switch
+not all the fabric). It returns the following structure:
+
+    $port{port number}->{SPEED}  = <2G|1G|...>
+                      ->{STATUS} = <OnLine|NoLight|...>
+                      ->{SLOT}   = blade number
+                      ->{NUMBER} = port number on blade
+                      ->{TYPE}   = <E-Port|F-Port|...>
+                      ->{WWN}    if connected
+
+If you set C<-bywwn=1>, it's return only a hash of WWN as key and port number as value.
+
+    my %wwn_to_port = $brcd->switchShow(-bywwn => 1);
+
+If you set C<-withportname=1>, the portName command is execute on each port of the switch to get the portname.
+
+=head2 toSlot
+
+    my ($slot,$slot_number) = $brcd->toSlot(36);
+    my $slot_address        = $brcd->toSlot(36);
+
+The function need to have an exectution of C<$brcd->switchShow>. It's usefull for
+a Director Switch to have the translation between absolute port number and slot/port number value.
+
+If you use it in scalar context, the command return the string C<slot/slot_number> (portShow format).
+
+=head2 portShow
+
+    my %port     = $brcd->portShow($port_number);
+    my $portname = $brcd->portShow($port_number);
+
+Need to have running the C<$brcd->switchShow> command. The function use the C<toSlot>
+function before sending the portShow command.
+
+In array context, function return a hash with key as the portName. In scalar context returns the
+portname.
+
+=head2 output
+
+    print $brcd->output();
+
+Return the last function output.
+
+=head2 wwn_re
+
+    my $wwn_re = $brcd->wwn_re();
+
+    if (m/($wwn_re)/) {
+        ...
+    }
+
+Return the WWN re.
+
+=head2 fabricShow
+
+    my %fabric = $brcd->fabricShow();
+
+Return a hash with all the switch in the fabric. Return the result byswitch name C<-byswitch> or
+C<-bydomain=1>.
+
+=head2 currentFabric
+
+    my $dns_fabric = $brcd->currentFabric();
+
+Return the current fabric NAME.
+
+=head2 isWwn
+
+    if ($brcd->isWwn($str)) {
+        ...
+    }
+
+Test a string to check if it is a WWN.
+
+=head2 portAlias
+
+    my ($domain, $port_number) = $brcd->portAlias("199,6");
+
+Split a string whith zoning format in domain and port number in the switch.
+
 =head1 SEE ALSO
 
-Documentation Brocade, Brocade API et Net::Telnet.
+Brocade Documentation, BrcdAPI, Net::Telnet.
+
+=head1 BUGS
+
+...
 
 =head1 AUTHOR
 
-Laurent Bendavid, E<lt>laurent.bendavid@dassault-aviation.comE<gt>
+Laurent Bendavid, E<lt>bendavid.laurent@fre.frE<gt>
 
 =head1 COPYRIGHT AND LICENSE
-                                                                                
-Copyright (C) 2006 by Laurent Bendavid
-                                                                                
+
+Copyright (C) 2005 by Laurent Bendavid
+
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.3 or,
 at your option, any later version of Perl 5 you may have available.
@@ -657,11 +665,11 @@ at your option, any later version of Perl 5 you may have available.
 
 =item Version
 
-1.10
+1.3
 
 =item History
 
-Created 6/27/2005, Modified 9/8/05 16:55:04
+Created 6/27/2005, Modified 3/26/07 18:32:59
 
 =back
 

@@ -1,6 +1,6 @@
 Revision history for Perl extension Net::Telnet::Brcd.
 
-0.01  Wed Mar  1 21:52:16 2006
+0.01  Tue Feb 28 09:04:15 2006
 	- original version; created by h2xs 1.23 with options
 		-A -X -n Net::Telnet::Brcd
 
