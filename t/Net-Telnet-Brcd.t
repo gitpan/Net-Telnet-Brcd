@@ -1,5 +1,5 @@
 #!/usr/local/bin/perl
-# @(#)Net-Telnet-Brcd.t	1.2
+# %W%
 # Before `make install' is performed this script should be runnable with
 # `make test'. After `make install' it should work as `perl Net-Telnet-Brcd.t'
 
@@ -26,7 +26,7 @@ unless ($ENV{BRCD_USER} && $ENV{BRCD_SWITCH} && $ENV{BRCD_PASS}) {
    exit(0);
 }
 
-plan tests => 5;
+plan tests => 6;
 
 no warnings;
 
@@ -61,4 +61,7 @@ if (DEBUG) {
         warn $port, ": $p_name = ", Dumper($ports{$port}), "\n";
     }
 }
+
+$brcd->cfgSave(-verbose => 1);
+ok(1,"cfgSave");
 
