@@ -1,5 +1,5 @@
 #!/usr/local/bin/perl
-# @(#)Brcd.pm	1.7
+# @(#)Brcd.pm	1.9
 
 package Net::Telnet::Brcd;
 
@@ -12,96 +12,80 @@ use Socket;
 use strict;
 use constant DEBUG => 0;
 
-require Exporter;
+use base qw(Net::Brcd Exporter);
 
 # Variables de gestion du package
-our %EXPORT_TAGS  = ( 'all' => [ qw() ] );
-our @EXPORT_OK    = ( @{ $EXPORT_TAGS{'all'} } );
-our @EXPORT       = qw();
 
-our $VERSION      = '1.7' * 0.1 || 0.001;
-our @ISA          = qw(Exporter);
+our $VERSION      = ('1.9' =~ m/\d/) ? '1.9' * 0.1 : 0.001;
 
 # Variables privées
 my $_brcd_prompt     = '\w+:\w+>\s+';
 my $_brcd_commit     = 'yes, y, no, n';
 my $_brcd_continue   = 'Type <CR> to continue, Q<CR> to stop:';
 my $_brcd_prompt_re  = "/(?:${_brcd_prompt}|${_brcd_continue}|${_brcd_commit})/";
-my $_brcd_wwn_re     = join(":",("[0-9A-Za-z][0-9A-Za-z]") x 8);
-my $_brcd_port_id    = qr/\d+,\d+/;
 my $_brcd_timeout    = 20; # secondes
 
 sub new {
     my ($class)=shift;
 
-    $class   = ref($class) || $class;
-    my $self = {};
-
-    $self->{TELNET} = new Net::Telnet (Timeout => ${_brcd_timeout},
-                                       Prompt  => "/${_brcd_prompt}/",
-                                       );
-
-    $self->{TELNET}->errmode("return");
-
+    my $self  = $class->SUPER::new();
     bless $self, $class;
     return $self;
 }
 
-sub connect {
-    my ($self,$switch,$user,$pass)=@_;
-
-    $user   ||= $ENV{BRCD_USER} || "admin";
-    $pass   ||= $ENV{BRCD_PASS};
-    $switch ||= $ENV{BRCD_SWITCH};
-
-    unless ($switch) {
-        croak __PACKAGE__,": Need switch \@IP or name.\n";
-    }
-    unless ($user and $pass) {
-        croak __PACKAGE__,": Need user or password.\n";
-    }
-    unless ($self->{TELNET}->open($switch)) {
+sub proto_connect {
+    my ($self, $switch, $user, $pass) = @_;
+    
+    my $proto = new Net::Telnet (Timeout => ${_brcd_timeout},
+                                 Prompt  => "/${_brcd_prompt}/",
+                                 );
+    $proto->errmode("return");
+    unless ($proto->open($switch)) {
         croak __PACKAGE__,": Cannot open connection with '$switch': $!\n";
     }
-    $self->{FABRICS}->{$switch} = {};
-    $self->{FABRIC}             = $switch;
-    unless ($self->{TELNET}->login($user, $pass)) {
+    unless ($proto->login($user, $pass)) {
         croak __PACKAGE__,": Cannot login as $user/*****: $!\n";
     }
-    $self->{USER}               = $user;
-
-    return 1;
+    $self->{PROTO} = $proto;
+    
+    # Retourne l'objet TELNET
+    return $proto;
 }
+
 
 sub cmd {
     my ($self, $cmd, @cmd)=@_;
     
     DEBUG && warn "DEBUG: $cmd, @cmd\n";
     
+    my $proto = $self->{PROTO} or croak __PACKAGE__, ": Error - Not connected.\n";
+    
     if (@cmd) {
         $cmd .= ' "' . join('", "', @cmd) . '"';
     }
     $self->sendcmd($cmd);
+    #sleep(1); # Temps d'envoi de la commande
 
     # Lecture en passant les continue
-    @cmd = undef;
+    @cmd = ();
     CMD: while (1) {
-       my ($str, $match) = $self->{TELNET}->waitfor(${_brcd_prompt_re});
+       my ($str, $match) = $proto->waitfor(${_brcd_prompt_re});
 
-       DEBUG && warn "DEBUG:: <$str>:<$match>\n";
+       DEBUG && warn "DEBUG:: !$match!$str!\n";
        push @cmd, split m/[\n\r]+/, $str;
        if ($match eq ${_brcd_commit}) {
-            $self->{TELNET}->print("yes\r\n");
+            $proto->print('yes');
             next CMD;
        }
        if ($match eq ${_brcd_continue}) {
-          $self->{TELNET}->print("");
+          $proto->print("");
           next CMD;
        }
        last CMD;
     }
+    @cmd = grep {defined $_} @cmd;
 
-    $self->{OUTPUT}=\@cmd;
+    $self->{OUTPUT} = \@cmd;
 
     return @cmd;
 }
@@ -109,11 +93,12 @@ sub cmd {
 sub sendcmd {
     my ($self, $cmd) = @_;
     
-    DEBUG && $self->{TELNET}->dump_log("/tmp/telnet.log");
+    my $proto = $self->{PROTO} or croak __PACKAGE__, ": Error - Not connected.\n";
+    
+    DEBUG && $proto->dump_log("/tmp/telnet.log");
     DEBUG && warn "Execute: $cmd\n";
-    if ($cmd eq 'eof') {
-    }
-    unless ($self->{TELNET}->print($cmd)) {
+    
+    unless ($proto->print($cmd)) {
         croak __PACKAGE__,": Cannot send '$cmd': $!\n";
     }
     return 1;
@@ -122,7 +107,9 @@ sub sendcmd {
 sub sendeof {
     my ($self) = @_;
     
-    unless ($self->{TELNET}->print("\cD")) {
+    my $proto = $self->{PROTO} or croak __PACKAGE__, ": Error - Not connected.\n";
+
+    unless ($proto->print("\cD")) {
         croak __PACKAGE__,": Cannot Ctrl-D: $!\n";
     }
     return 1;
@@ -131,493 +118,21 @@ sub sendeof {
 sub readline {
     my ($self, $arg_ref) = @_;  
 
-    #my ($str, $match) = $self->{TELNET}->waitfor(m/^\s+/);
-
+    #my ($str, $match) = $proto->waitfor(m/^\s+/);
+    my $proto = $self->{PROTO} or croak __PACKAGE__, ": Error - Not connected.\n";
     #DEBUG && warn "DEBUG:: <$str>:<$match>\n";
     #return $str;
-    my $str = $self->{TELNET}->getline(($arg_ref?%{$arg_ref}:undef));
+    my $str = $proto->getline(($arg_ref?%{$arg_ref}:undef));
     if ($str =~ m/{_brcd_prompt_re}/) {
         return;
     }
     return $str;
 }
 
-sub cfgSave {
-    my $self = shift;
-    my %args = (
-        -verbose => 0,
-        @_,
-    );
-    my @rc   = $self->cmd('cfgSave');
-    
-    if ($args{-verbose}) {
-        warn "cfgSave: @rc\n";
-    }
-    
-    my $rc   = pop @rc;
-    if ($rc =~ m/Nothing/ or $rc =~ m/Updating/) {
-        return 1;
-    }
-    croak "Error - Cannot save current configuration: $rc [@rc].\n";
-}
-
-sub aliShow {
-    my $self=shift;
-
-    my %args=(
-          -bywwn    =>  0,
-          -byport   =>  0,
-          -cache    =>  0,
-          -onlywwn  =>  1,
-          -filter   =>  '*',
-          @_
-          );
-
-    my $fab_name = $self->{FABRIC};
-    my $fab      = $self->{FABRICS}->{$fab_name};
-    $args{-onlywwn} = 0 if $args{-byport};
-
-    my ($alias);
-    $fab->{PORTID} = {};
-    $fab->{WWN}    = {};
-    $fab->{ALIAS}  = {};
-    foreach ($self->cmd('aliShow "' . $args{-filter} . '"')) {
-        next unless $_;
-        if (m/alias:\s+(\w+)/) {
-            $alias=$1;
-            next;
-        }
-        if ($alias && m/${_brcd_wwn_re}/) {
-            s/^\s*//; # on enleve les blancs de devant
-            DEBUG && warn "DEBUG: aliShow: $alias: $_\n";
-            my @wwn_for_alias = split m/\s*;\s*/;
-            foreach my $wwn (@wwn_for_alias) {
-                $fab->{WWN}->{$wwn}     = $alias;
-            }
-            if (exists $fab->{ALIAS}->{$alias}) {
-                my $old_alias_value = $fab->{ALIAS}->{$alias};
-                unless (ref $old_alias_value) {
-                    $fab->{ALIAS}->{$alias} = [$old_alias_value];
-                }
-                push @{$fab->{ALIAS}->{$alias}}, @wwn_for_alias;
-            } else {
-                $fab->{ALIAS}->{$alias} = (@wwn_for_alias == 1) ? $wwn_for_alias[0]
-                                                                : \@wwn_for_alias;
-            }
-           
-            next;
-        }
-        
-        next if $args{-onlywwn};
-        
-        if ($alias && m/(${_brcd_port_id})/) {
-            my $port_id = $1;
-            $fab->{PORTID}->{$port_id} = $alias;
-            $fab->{ALIAS}->{$alias}    = $port_id;
-            next;
-        }
-    }
-    #}
-    DEBUG && warn Dumper($fab);
-
-    return ($args{'-bywwn'})  ? (%{$fab->{WWN}})    :
-           ($args{'-byport'}) ? (%{$fab->{PORTID}}) :                  
-                                (%{$fab->{ALIAS}});
-}
-
-sub aliCreate {
-    my ($arg_ref) = @_;
-    
-    
-}
-
-sub zoneShow {
-    my $self = shift;
-
-    my %args = (
-          -bymember => 0,
-          -cache    => 0,
-          -filter   => '*',
-          @_
-          );
-
-    my $fab_name = $self->{FABRIC};
-    my $fab      = $self->{FABRICS}->{$fab_name};
-
-    my ($zone);
-    foreach ($self->cmd('zoneShow "' . $args{-filter} . '"')) {
-        DEBUG && warn "DEBUG:CMDDUMP: $_\n";
-        if (m/zone:\s+(\w+)/) {
-            $zone = $1;
-            next;
-        }
-        if ($zone && m/\s*(\w[:\w\s;]+)/) {
-            my $members = $1;
-            my @member  = split m/;\s+/, $members;
-
-            foreach my $member (@member) {
-                $fab->{ZONE}->{$zone}->{$member}++;
-                $fab->{MEMBER}->{$member}->{$zone}++;
-            }
-        }
-    }
-    
-    unless ($fab->{MEMBER} and $fab->{ZONE}) {
-        croak "Warning - Empty zone.\n";
-    }
-
-    if (wantarray()) {
-        return ($args{'-bymember'})?(%{$fab->{MEMBER}}):(%{$fab->{ZONE}});
-    }
-}
-
-sub zoneMember {
-    my ($self, $zone)=@_;
-
-    my $fab_name = $self->{FABRIC};
-    my $fab      = $self->{FABRICS}->{$fab_name};
-
-    return unless exists $fab->{ZONE}->{$zone};
-
-    return sort keys %{$fab->{ZONE}->{$zone}};
-}
-
-sub memberZone {
-    my ($self,$member)=@_;
-
-    my $fab_name = $self->{FABRIC};
-    my $fab      = $self->{FABRICS}->{$fab_name};
-
-    return unless exists $fab->{MEMBER}->{$member};
-
-    return sort keys %{$fab->{MEMBER}->{$member}};
-}
-
-sub switchShow {
-    my $self=shift;
-
-    my %args=(
-          -bywwn        => 0,
-          -withportname => 0,
-          -byslot       => 0,
-          @_
-          );
-
-    my $fab_name = $self->{FABRIC};
-    my $fab      = $self->{FABRICS}->{$fab_name};
-
-    my (%wwn);
-    foreach ($self->cmd("switchShow")) {
-        next unless $_;
-DEBUG && warn  "SWITCHSHOW   : $_\n";
-        if (m/^(\w+):\s+(.+)/) {
-            $fab->{$1} = $2;
-            next;
-        }
-#12000 :     0    1    0   id    2G   Online    E-Port  (Trunk port, master is Slot  1 Port
-#4100  :     0   0   id    2G   Online    E-Port  10:00:00:05:1e:35:f6:e5 "PS4100A"       
-#3800  :port  0: id 2G Online         F-Port 50:06:01:60:10:60:04:26
-#48000 :  13    1   13   0a0d00   id    N2   Online           F-Port  10:00:00:00:c9:35:99:4b
-#48000 : 12    1   12   0a0c00   id    N4   No_Light      
-        if (m{
-            ^[port\s]*(\d+):? \s*        # Le port number forme ok:port 1: ; 12;144
-            (?:
-                (?:
-                  (\d+)\s+               # Le slot que sur les directeurs
-                )?
-                (\d+)\s*                 # Le port dans le slot
-            )?
-            ([09a-zA-Z]+)?               # Adresse FC, que à partir de FabOS 5.2.0a
-            \s+ id \s+                   # Le mot magique qui dit que c'est la bonne ligne
-            [a-zA-Z]*(\d+)[a-zA-Z]*  \s+ # Vitesse du port plusieurs format à priori toujours en Go/s
-            (\w+)  \s*                   # Status du port
-            (.*)                         # Toutes les autres informations (notamment le WWN si connectés)
-        }mxs) {
-DEBUG && warn  "SWITCHSHOW-RE: #$1# #$2# #$3# #$4# #$5# #$6# #$7#\n";
-            # Récupération des champs, les champs dans les même ordre que les $
-            my @fields = qw(SLOT NUMBER ADDRESS SPEED STATUS INFO);              
-            my $port_number  = $1;
-            my $port_info    = $7;  
-            foreach my $re ($2, $3, $4, $5, $6, $7) {
-                my $field = shift @fields;
-                if (defined $re) {
-                    $fab->{PORT}->{$port_number}->{$field} = $re;
-                }
-            }
-            $fab->{PORT}->{$port_number}->{PORTNAME} = $self->portShow($port_number) if $args{-withportname};
-            $fab->{SLOTN}->{
-                (($fab->{PORT}->{$port_number}->{SLOT}) ? $fab->{PORT}->{$port_number}->{SLOT} . '/'
-                :                                        "")
-                . $fab->{PORT}->{$port_number}->{NUMBER}
-            }->{PORT} = $port_number;
-
-            if ($port_info and $port_info =~ m/^(\w-\w+)\s+(${_brcd_wwn_re})?/) {
-                my ($type, $wwn) = ($1,$2);
-                $fab->{PORT}->{$port_number}->{TYPE} = $type;
-                $fab->{PORT}->{$port_number}->{WWN}  = $wwn   if $wwn;
-                
-
-                if ($type eq "F-Port") {
-                    $wwn{$wwn} = $port_number;
-                }
-            }
-        }
-    }
-
-    return   ($args{'-bywwn'})       ? %wwn
-           : ($args{'-byslot'})      ? %{$fab->{SLOTN}}
-           : (exists $fab->{PORT})   ? %{$fab->{PORT}}
-           :                           undef;
-}
-
-sub toSlot {
-    my $self        = shift;
-    my $port_number = shift;
-    
-    my $fab_name = $self->{FABRIC};
-    my $fab      = $self->{FABRICS}->{$fab_name};
-
-DEBUG && warn "TOSLOT: $port_number\n";
-    
-    unless (exists $fab->{PORT}->{$port_number}) {
-        $@ = __PACKAGE__.":toSlot: port number $port_number does not exist\n";
-        
-DEBUG && warn "$@\n";
-
-        return;
-    }
-    unless (exists $fab->{PORT}->{$port_number}->{SLOT}) {
-    
-        $@ = __PACKAGE__.":toSlot: port number $port_number is not a director\n";
-DEBUG && warn "$@\n";
-
-        return;
-    }
-    
-DEBUG && warn "TOSLOT: ",$fab->{PORT}->{$port_number}->{SLOT}."/".$fab->{PORT}->{$port_number}->{NUMBER},"\n";
-
-    return (wantarray())?($fab->{PORT}->{$port_number}->{SLOT},$fab->{PORT}->{$port_number}->{NUMBER}):
-                          $fab->{PORT}->{$port_number}->{SLOT}."/".$fab->{PORT}->{$port_number}->{NUMBER};
-}
-
-sub portShow {
-    my $self        = shift;
-    my $port_number = shift;
-
-    my $fab_name = $self->{FABRIC};
-    my $fab      = $self->{FABRICS}->{$fab_name};
-    
-DEBUG && warn "PORTSHOW-PORTNUMBER:test: $port_number\n";
-    $port_number = $self->toSlot($port_number) || $port_number;
-DEBUG && warn "PORTSHOW-PORTNUMBER:set: $port_number\n";
-    my (%port, $param, $value, $portname);
-    
-    foreach ($self->cmd("portShow $port_number")) {    
-DEBUG && warn "PORTSHOW:parse: $_\n";
-
-        if (m/^([\w\s]+):\s+(.+)/) {
-            $param        = $1;
-            $value        = $2;
-            
-DEBUG && warn "PORTSHOW: param #$param# value #$value#\n";
-            
-            $port{$param} = $value;
-            SWITCH: {
-                if ($param eq 'portName') {
-                    $fab->{SLOTN}->{$port_number}->{PORTNAME} = $value;
-                    $portname                                 = $value;
-                    last SWITCH;
-                }
-            }
-            next;
-        }
-        
-        if (m/^([\w\s]+):\s*$/) {
-            $param = $1;
-            next;
-        }
-        
-        if (m/^\s+(.+)/) {
-            $port{$param} = $1;
-            next;
-        }
-    }
-
-    return (wantarray())?(%port):($portname);
-}
-
-sub output {
-    my $self=shift;
-
-    return join("\n",@{$self->{OUTPUT}})."\n";
-}
-
-sub wwn_re {
-    return ${_brcd_wwn_re};
-}
-
 sub DESTROY {
-    my $self=shift;
-
-    $self->{TELNET}->close();
-}
-
-sub fabricShow {
-    my $self=shift;
-    my %args=(
-          -bydomain        => 0,
-          @_
-          );
-    my (%fabric,%domain);
-    
-    foreach ($self->cmd('fabricShow')) {
-        next unless $_;
-DEBUG && warn "DEBUG:: $_\n";
-        if (m{
-            ^\s* (\d+) : \s+ \w+ \s+  # Domain id + identifiant FC
-            ${_brcd_wwn_re} \s+       # WWN switch
-            (\d+\.\d+\.\d+\.\d+) \s+  # Adresse IP switch
-            \d+\.\d+\.\d+\.\d+   \s+  # Adresse IP FC switch (FCIP)
-            (>?)"([^"]+)              # Master, nom du switch
-        }msx) {
-            my ($domain_id, $switch_ip, $switch_master, $switch_name) = ($1, $2, $3, $4);
-            my $switch_host = gethostbyaddr(inet_aton($switch_ip), AF_INET);
-            my @fields      = qw(DOMAIN IP MASTER FABRIC NAME MASTER);
-            foreach my $re ($domain_id, $switch_ip, $switch_master, $switch_host, $switch_name) {
-                my $field = shift @fields;
-                if ($re) {
-                    $domain{$domain_id}->{$field}   = $re;
-                    $fabric{$switch_name}->{$field} = $re;
-                } 
-            }
-            
-            $fabric{$switch_host} = $switch_name if $switch_host;
-        }
-    }
-    
-    return ($args{-bydomain}) ? (%domain) :
-                                (%fabric);
-}
-
-sub currentFabric {
     my $self = shift;
-    
-    return $self->{FABRIC};
-}
 
-
-sub isWwn {
-    my $self = shift;    
-    my $wwn = shift;
-    
-    ($wwn =~ m/^${_brcd_wwn_re}/)?(return 1):(return);
-    
-}
-
-sub portAlias {
-    my $self = shift;
-    my $port_alias = shift;
-    
-    if ($port_alias =~ m/(\d+),(\d+)/){
-        return ($1, $2);
-    }
-    return;
-}
-
-sub rename {
-    my ($self, $old_zone_object, $new_zone_object) = @_;
-    
-    unless ($old_zone_object and $new_zone_object) {
-        croak "Error - Need old and new name.\n";
-    }
-    
-    return $self->cmd("zoneObjectRename $old_zone_object, $new_zone_object");
-}
-
-sub _zoning_cmd {
-    my ($self, $cmd_name, $zone_object, @cmd_args) = @_;
-    
-    unless ($cmd_name) {
-        croak "Error - Need command name.\n";
-    }
-    unless ($zone_object) {
-        croak "Error - Need object name.\n";
-    }
-    
-    my $cmd = "$cmd_name $zone_object";
-    my $str_args;
-    if (@cmd_args == 1) {
-        $str_args = shift @cmd_args;
-        if (ref $str_args eq 'ARRAY') {
-            $str_args = join(';', @{$str_args});
-        }
-    } elsif (@cmd_args) {
-        $str_args = join(';', @{$str_args});
-    }
-    if ($str_args) {
-        $cmd .= ", \"$str_args\"";
-    }
-    
-    return $self->cmd($cmd);
-}
-
-sub _build_cmd_name {
-    my ($prefix, $args_ref) = @_;
-    
-    my @exclude = (
-        '^-name',
-        '^-members',
-    );
-    my $action;
-    ARG_CMD: foreach my $arg (keys %{$args_ref}) {
-        next unless ($args_ref->{$arg});
-        foreach my $exclude (@exclude) {
-            if ($arg =~ m/$exclude/) {
-                next ARG_CMD;
-            }
-        }
-        $arg    =~ s/^[-]*//;
-        $action = $arg;
-    }
-    unless ($action) {
-        croak "Error - cannot find action.\n";
-    }
-    
-    return $prefix . $action;
-}
-
-sub zone {
-    my $self = shift;
-    
-    my %args = (
-        -create  => 0,
-        -add     => 0,
-        -delete  => 0,
-        -remove  => 0,
-        -name    => "",
-        -members => "",
-        @_,
-    );
-    my $cmd_name = _build_cmd_name('zone', \%args);
- 
-    return $self->_zoning_cmd($cmd_name, $args{zone}, $args{members});
-}
-
-sub ali {
-    my $self = shift;
-    
-    my %args = (
-        -create  => 0,
-        -add     => 0,
-        -delete  => 0,
-        -remove  => 0,
-        -name    => "",
-        -members => "",
-        @_,
-    );
-    my $cmd_name = _build_cmd_name('ali', \%args);
- 
-    return $self->_zoning_cmd($cmd_name, $args{zone}, $args{members});
+    $self->{PROTO}->close() if exists $self->{PROTO};
 }
 
 
@@ -1017,11 +532,11 @@ at your option, any later version of Perl 5 you may have available.
 
 =item Version
 
-1.7
+1.9
 
 =item History
 
-Created 6/27/2005, Modified 5/4/07 11:27:56
+Created 6/27/2005, Modified 8/14/07 18:41:02
 
 =back
 

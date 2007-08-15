@@ -26,7 +26,7 @@ unless ($ENV{BRCD_USER} && $ENV{BRCD_SWITCH} && $ENV{BRCD_PASS}) {
    exit(0);
 }
 
-plan tests => 6;
+plan tests => 9;
 
 no warnings;
 
@@ -61,7 +61,27 @@ if (DEBUG) {
         warn $port, ": $p_name = ", Dumper($ports{$port}), "\n";
     }
 }
+my @rc;
+@rc = $brcd->ali(
+   -create => 1,
+   -name   => "test_net_brcd",
+   -members => "30:00:00:00:c9:30:fa:30",
+);
+my %args;
+if (DEBUG) {
+    %args = (-verbose => 1);
+}
+@rc = $brcd->cmd("cfgTransShow");
+ok(scalar(@rc) > 0, "aliCreate");
+$brcd->cfgSave(%args);
+ok(1,"cfgSave with actions");
 
-$brcd->cfgSave(-verbose => 1);
-ok(1,"cfgSave");
-
+my @rc = $brcd->ali(
+   -delete => 1,
+   -name   => "test_net_brcd",
+);
+@rc = $brcd->cmd("cfgtransshow");
+ok(scalar(@rc) > 0, "aliDelete");
+$brcd->cfgSave(%args);
+$brcd->cfgSave(%args);
+ok(1,"cfgSave without actions");
