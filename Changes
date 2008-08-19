@@ -1,5 +1,8 @@
 Revision history for Perl extension Net::Telnet::Brcd.
 
+0.20 Wed Aug 20 00:26:14 CEST 2008
+    - Change test file to adapt to Perl 5.10
+
 0.19 Tue Aug 14 18:36:28 DFT 2007
 	- Debug cfgSave, change design of code to be easy portable
 	  for SSH. Net::Brcd content a wrapper for some Brocade

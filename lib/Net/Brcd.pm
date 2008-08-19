@@ -1,5 +1,5 @@
 #!/usr/local/bin/perl
-# @(#)Brcd.pm	1.1
+# @(#)Brcd.pm    1.3
 
 package Net::Brcd;
 
@@ -14,7 +14,7 @@ use constant DEBUG => 0;
 use base qw(Exporter);
 
 # Variables de gestion du package
-our $VERSION      = 0.1;
+our $VERSION      = 0.20;
 
 # Variables privées
 my $_brcd_wwn_re     = join(":",("[0-9A-Za-z][0-9A-Za-z]") x 8);
@@ -52,7 +52,7 @@ sub connect {
 
 sub proto_connect {
     my ($self,$switch,$user,$pass) = @_;
-    
+
     croak __PACKAGE__, "Error - proto_connect is a virtual function.\n";
 }
 
@@ -76,7 +76,7 @@ sub sendeof {
 
 sub readline {
     my ($self, $arg_ref) = @_;
-    
+
     croak __PACKAGE__, "Error - readline is a virtual function.\n";
 }
 
@@ -87,7 +87,7 @@ sub cfgSave {
         @_,
     );
     my @rc   = $self->cmd('cfgSave');
-    
+
     my $rc = '';
     SWITCH: {
         DEBUG && warn "DEBUG:cfgsave", Dumper(\@rc);
@@ -98,10 +98,10 @@ sub cfgSave {
             warn join("\n", @rc), "\n";
         }
         $rc   = pop @rc;
-        return 1 if ($rc =~ m/Nothing/i); # Pas de modif 
+        return 1 if ($rc =~ m/Nothing/i); # Pas de modif
         return 1 if ($rc =~ m/Updating/i); # Update fait
     }
-    
+
     croak "Error - Cannot save current configuration: $rc.\n";
 }
 
@@ -148,12 +148,12 @@ sub aliShow {
                 $fab->{ALIAS}->{$alias} = (@wwn_for_alias == 1) ? $wwn_for_alias[0]
                                                                 : \@wwn_for_alias;
             }
-           
+
             next;
         }
-        
+
         next if $args{-onlywwn};
-        
+
         if ($alias && m/(${_brcd_port_id})/) {
             my $port_id = $1;
             $fab->{PORTID}->{$port_id} = $alias;
@@ -165,7 +165,7 @@ sub aliShow {
     DEBUG && warn "DEBUG:zone.?:", Dumper($fab);
 
     return ($args{'-bywwn'})  ? (%{$fab->{WWN}})    :
-           ($args{'-byport'}) ? (%{$fab->{PORTID}}) :                  
+           ($args{'-byport'}) ? (%{$fab->{PORTID}}) :
                                 (%{$fab->{ALIAS}});
 }
 
@@ -199,7 +199,7 @@ sub zoneShow {
             }
         }
     }
-    
+
     unless ($fab->{MEMBER} and $fab->{ZONE}) {
         croak "Warning - Empty zone.\n";
     }
@@ -253,10 +253,10 @@ DEBUG && warn  "SWITCHSHOW   : $_\n";
             next;
         }
 #12000 :     0    1    0   id    2G   Online    E-Port  (Trunk port, master is Slot  1 Port
-#4100  :     0   0   id    2G   Online    E-Port  10:00:00:05:1e:35:f6:e5 "PS4100A"       
+#4100  :     0   0   id    2G   Online    E-Port  10:00:00:05:1e:35:f6:e5 "PS4100A"
 #3800  :port  0: id 2G Online         F-Port 50:06:01:60:10:60:04:26
 #48000 :  13    1   13   0a0d00   id    N2   Online           F-Port  10:00:00:00:c9:35:99:4b
-#48000 : 12    1   12   0a0c00   id    N4   No_Light      
+#48000 : 12    1   12   0a0c00   id    N4   No_Light
         if (m{
             ^[port\s]*(\d+):? \s*        # Le port number forme ok:port 1: ; 12;144
             (?:
@@ -273,9 +273,9 @@ DEBUG && warn  "SWITCHSHOW   : $_\n";
         }mxs) {
 DEBUG && warn  "SWITCHSHOW-RE: #$1# #$2# #$3# #$4# #$5# #$6# #$7#\n";
             # Récupération des champs, les champs dans les même ordre que les $
-            my @fields = qw(SLOT NUMBER ADDRESS SPEED STATUS INFO);              
+            my @fields = qw(SLOT NUMBER ADDRESS SPEED STATUS INFO);
             my $port_number  = $1;
-            my $port_info    = $7;  
+            my $port_info    = $7;
             foreach my $re ($2, $3, $4, $5, $6, $7) {
                 my $field = shift @fields;
                 if (defined $re) {
@@ -293,7 +293,7 @@ DEBUG && warn  "SWITCHSHOW-RE: #$1# #$2# #$3# #$4# #$5# #$6# #$7#\n";
                 my ($type, $wwn) = ($1,$2);
                 $fab->{PORT}->{$port_number}->{TYPE} = $type;
                 $fab->{PORT}->{$port_number}->{WWN}  = $wwn   if $wwn;
-                
+
 
                 if ($type eq "F-Port") {
                     $wwn{$wwn} = $port_number;
@@ -313,27 +313,27 @@ DEBUG && warn  "SWITCHSHOW-RE: #$1# #$2# #$3# #$4# #$5# #$6# #$7#\n";
 sub toSlot {
     my $self        = shift;
     my $port_number = shift;
-    
+
     my $fab_name = $self->{FABRIC};
     my $fab      = $self->{FABRICS}->{$fab_name};
 
 DEBUG && warn "TOSLOT: $port_number\n";
-    
+
     unless (exists $fab->{PORT}->{$port_number}) {
         $@ = __PACKAGE__.":toSlot: port number $port_number does not exist\n";
-        
+
 DEBUG && warn "$@\n";
 
         return;
     }
     unless (exists $fab->{PORT}->{$port_number}->{SLOT}) {
-    
+
         $@ = __PACKAGE__.":toSlot: port number $port_number is not a director\n";
 DEBUG && warn "$@\n";
 
         return;
     }
-    
+
 DEBUG && warn "TOSLOT: ",$fab->{PORT}->{$port_number}->{SLOT}."/".$fab->{PORT}->{$port_number}->{NUMBER},"\n";
 
     return (wantarray())?($fab->{PORT}->{$port_number}->{SLOT},$fab->{PORT}->{$port_number}->{NUMBER}):
@@ -346,22 +346,22 @@ sub portShow {
 
     my $fab_name = $self->{FABRIC};
     my $fab      = $self->{FABRICS}->{$fab_name};
-    
+
 DEBUG && warn "PORTSHOW-PORTNUMBER:test: $port_number\n";
     $port_number = $self->toSlot($port_number) || $port_number;
 DEBUG && warn "PORTSHOW-PORTNUMBER:set: $port_number\n";
     my (%port, $param, $value, $portname);
-    
+
     no warnings;
-    foreach ($self->cmd("portShow $port_number")) {    
+    foreach ($self->cmd("portShow $port_number")) {
 DEBUG && warn "PORTSHOW:parse: $_\n";
 
         if (m/^([\w\s]+):\s+(.+)/) {
             $param        = $1;
             $value        = $2;
-            
+
 DEBUG && warn "PORTSHOW: param #$param# value #$value#\n";
-            
+
             $port{$param} = $value;
             SWITCH: {
                 if ($param eq 'portName') {
@@ -372,12 +372,12 @@ DEBUG && warn "PORTSHOW: param #$param# value #$value#\n";
             }
             next;
         }
-        
+
         if (m/^([\w\s]+):\s*$/) {
             $param = $1;
             next;
         }
-        
+
         if (m/^\s+(.+)/) {
             $port{$param} = $1;
             next;
@@ -398,12 +398,6 @@ sub wwn_re {
     return ${_brcd_wwn_re};
 }
 
-sub DESTROY {
-    my $self=shift;
-
-    $self->{TELNET}->close();
-}
-
 sub fabricShow {
     my $self=shift;
     my %args=(
@@ -411,7 +405,7 @@ sub fabricShow {
           @_
           );
     my (%fabric,%domain);
-    
+
     foreach ($self->cmd('fabricShow')) {
         next unless $_;
 DEBUG && warn "DEBUG:: $_\n";
@@ -430,36 +424,36 @@ DEBUG && warn "DEBUG:: $_\n";
                 if ($re) {
                     $domain{$domain_id}->{$field}   = $re;
                     $fabric{$switch_name}->{$field} = $re;
-                } 
+                }
             }
-            
+
             $fabric{$switch_host} = $switch_name if $switch_host;
         }
     }
-    
+
     return ($args{-bydomain}) ? (%domain) :
                                 (%fabric);
 }
 
 sub currentFabric {
     my $self = shift;
-    
+
     return $self->{FABRIC};
 }
 
 
 sub isWwn {
-    my $self = shift;    
+    my $self = shift;
     my $wwn = shift;
-    
+
     ($wwn =~ m/^${_brcd_wwn_re}/)?(return 1):(return);
-    
+
 }
 
 sub portAlias {
     my $self = shift;
     my $port_alias = shift;
-    
+
     if ($port_alias =~ m/(\d+),(\d+)/){
         return ($1, $2);
     }
@@ -468,24 +462,24 @@ sub portAlias {
 
 sub rename {
     my ($self, $old_zone_object, $new_zone_object) = @_;
-    
+
     unless ($old_zone_object and $new_zone_object) {
         croak "Error - Need old and new name.\n";
     }
-    
+
     return $self->cmd("zoneObjectRename $old_zone_object, $new_zone_object");
 }
 
 sub _zoning_cmd {
     my ($self, $cmd_name, $zone_object, @cmd_args) = @_;
-    
+
     unless ($cmd_name) {
         croak "Error - Need command name.\n";
     }
     unless ($zone_object) {
         croak "Error - Need object name.\n";
     }
-    
+
     my $cmd = "$cmd_name $zone_object";
     my $str_args;
     if (@cmd_args == 1) {
@@ -499,13 +493,13 @@ sub _zoning_cmd {
     if ($str_args) {
         $cmd .= ", \"$str_args\"";
     }
-    
+
     return $self->cmd($cmd);
 }
 
 sub _build_cmd_name {
     my ($prefix, $args_ref) = @_;
-    
+
     my @exclude = (
         '^-name',
         '^-members',
@@ -524,13 +518,13 @@ sub _build_cmd_name {
     unless ($action) {
         croak "Error - cannot find action.\n";
     }
-    
+
     return $prefix . $action;
 }
 
 sub zone {
     my $self = shift;
-    
+
     my %args = (
         -create  => 0,
         -add     => 0,
@@ -541,13 +535,13 @@ sub zone {
         @_,
     );
     my $cmd_name = _build_cmd_name('zone', \%args);
-     
+
     return $self->_zoning_cmd($cmd_name, $args{-name}, $args{-members});
 }
 
 sub ali {
     my $self = shift;
-    
+
     my %args = (
         -create  => 0,
         -add     => 0,
@@ -558,7 +552,7 @@ sub ali {
         @_,
     );
     my $cmd_name = _build_cmd_name('ali', \%args);
- 
+
     DEBUG && warn "DEBUG:ALI:", Dumper($cmd_name, \%args);
 
     return $self->_zoning_cmd($cmd_name, $args{-name}, $args{-members});
@@ -573,22 +567,25 @@ __END__
 
 =head1 NAME
 
-Net::Telnet::Brcd - Perl libraries to contact Brocade switch
+Net::Brcd - Perl libraries to contact Brocade switch
 
 =head1 SYNOPSIS
 
+    #use Net::<Proto>::Brcd;
     use Net::Telnet::Brcd;
-    
+
+    #my $sw = new Net::<Proto>::Brcd;
+    #Example :
     my $sw = new Net::Telnet::Brcd;
-    
+
     $sw->connect($sw_name,$user,$pass) or die "\n";
-    
+
     %wwn_port = $sw->switchShow(-bywwn=>1);
     my @lines = $sw->cmd("configShow");
 
 =head1 DESCRIPTION
 
-Perl libraries to contact Brocade switch with a telnet session. You could set this
+Perl libraries to contact Brocade switch. You could set this
 environment variable to simplify coding:
 
 =over 4
@@ -607,11 +604,15 @@ switch name or IP address
 
 =back
 
+This module should not be call directly. You have to choose <Proto> for your
+communication.
+
 =head1 FUNCTIONS
 
 =head2 new
 
-    my $brcd = new Net::Telnet::Brcd;
+    my $brcd = new Net::<Proto>::Brcd;
+    # For instance <Proto> = Telnet
 
 Initialize Brocade object. No arguments needed.
 
@@ -619,11 +620,10 @@ Initialize Brocade object. No arguments needed.
 
     $brcd->connect($switch,$user,$pass);
 
-Connect to a Brocade switch with a telnet session (use Net::Telnet module). Return undef on error.
-Do it before any switch command.
+Connect to a Brocade switch. The command exit if an error
+occured.
 
-The Net::Telnet object is stored in $brcd->{TELNET}. You could access Net::Telnet capabilities with 
-this object.
+B<Do it before any switch command>.
 
 One object is required for each connection. If you want simultaneous connection
 you need several objects.
@@ -633,14 +633,10 @@ you need several objects.
     my @results = $brcd->cmd("configShow");
     my $ok      = $brcd->cmd("cfgsave");
 
-This function is used to send command to a brocade switch. The command works as the 'cmd' 
-function of Net::Telnet module and add differents features:
+This function is used to send command to a brocade switch. And implement
+differents features:
 
 =over
-
-=item *
-
-The command set the regular expression for Brocade prompt.
 
 =item *
 
@@ -674,7 +670,7 @@ store the stdout of the brocade command and return it in a array.
 
     my $rc = $brcd->sendcmd("portperfshow");
 
-This function execute command without trap standard output. It's useful for 
+This function execute command without trap standard output. It's useful for
 command that needs to be interrupted.
 
 You have to use the C<readline> function to read each line generated by the command.
@@ -691,8 +687,8 @@ Send Ctrl-D command to interrupt command (useful for portperfshow).
         # Do what you want with $str
     }
 
-Read telnet output as piped command. You have a to decided when to stop (If the line 
-content a prompt, I return undef). The command accept the same argument as Net::Telnet getline command.
+Read output as piped command. You have a to decided when to stop (If the line
+content a prompt, I return undef).
 
     $brcd->readline({Timeout => 60});
 
@@ -709,14 +705,14 @@ of the returned hash :
 
 =item default
 
-Without option : return key = alias, value = WWN. 
+Without option : return key = alias, value = WWN.
 
-B<Be carefull !!> If one alias contains multiple WWN, value is a ref array of 
+B<Be carefull !!> If one alias contains multiple WWN, value is a ref array of
 all the WWN member.
 
 =item -onlywwn
 
-With option -onlywwn => 1 (default option) : does not return alias with port 
+With option -onlywwn => 1 (default option) : does not return alias with port
 naming. Disable this option (-onlywwn => 0), if you want both.
 
 =item -filter
@@ -769,8 +765,8 @@ Return a hash with one key is a zone and value an array of alias member or WWN o
         print "$zone:\n\t";
         print join("; ", keys %{$zone{$zone}} ),"\n";
     }
-    
-=over 
+
+=over *
 
 =item -bymember => 1
 
@@ -817,7 +813,7 @@ If you set C<-bywwn=1>, it's return only a hash of WWN as key and port number as
 
 If you set C<-withportname=1>, the portName command is execute on each port of the switch to get the portname.
 
-If you set C<-byslot=1>, it's return only a hash of slot/number as key and portname and port number 
+If you set C<-byslot=1>, it's return only a hash of slot/number as key and portname and port number
 as value.
 
 =head2 toSlot
@@ -887,7 +883,7 @@ Split a string whith zoning format in domain and port number in the switch.
 =head2 cfgSave
 
     my $boolean = $brcd->cfgSave();
-    
+
 The function execute cfgSave command an return true if ok or exit. You can trap
 this exception whith C<eval {};> block. Error message always begin with C<Error - >.
 
@@ -898,7 +894,7 @@ this exception whith C<eval {};> block. Error message always begin with C<Error 
         -name    => 'z_toto1',
         -members => '10:00:00:00:C9:3D:F3:04',
     );
-        
+
     my @rc = $brcd->zone(
         -add     => 1,
         -name    => 'z_toto2',
@@ -917,7 +913,7 @@ Supported sub commmand are -add, -create, -delete, -remove.
         -name    => 'w_toto1',
         -members => '10:00:00:00:C9:51:FB:29',
     );
-        
+
     my @rc = $brcd->ali(
         -add     => 1,
         -name    => 'w_toto2',
@@ -926,7 +922,7 @@ Supported sub commmand are -add, -create, -delete, -remove.
             '10:00:00:00:C9:46:DA:A7',
         ],
     );
-    
+
     my @rc = $brcd->ali(
         -add     => 1,
         -name    => 'w_toto3',
@@ -939,7 +935,7 @@ Supported sub commmand are -add, -create, -delete, -remove.
 
 =head1 SEE ALSO
 
-Brocade Documentation, BrcdAPI, Net::Telnet.
+Brocade Documentation, BrcdAPI, Net::Telnet::Brcd(3).
 
 =head1 BUGS
 
@@ -947,7 +943,7 @@ Brocade Documentation, BrcdAPI, Net::Telnet.
 
 =head1 AUTHOR
 
-Laurent Bendavid, E<lt>bendavid.laurent@fre.frE<gt>
+Laurent Bendavid, E<lt>lbendavid@cpan.orgE<gt>
 
 =head1 COPYRIGHT AND LICENSE
 
@@ -961,11 +957,11 @@ at your option, any later version of Perl 5 you may have available.
 
 =item Version
 
-1.1
+1.3
 
 =item History
 
-Created 6/27/2005, Modified 8/14/07 18:33:24
+Created 6/27/2005, Modified 8/17/07 11:46:09
 
 =back
 
