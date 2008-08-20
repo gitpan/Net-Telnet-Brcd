@@ -1,5 +1,8 @@
 Revision history for Perl extension Net::Telnet::Brcd.
 
+0.21 Wed Aug 20 22:21:34 CEST 2008
+    - Change test file to adapt to Perl 5.10
+
 0.20 Wed Aug 20 00:26:14 CEST 2008
     - Change test file to adapt to Perl 5.10
 

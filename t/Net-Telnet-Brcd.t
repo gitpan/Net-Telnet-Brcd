@@ -10,18 +10,22 @@
 use Test::More;
 use constant DEBUG => 0;
 use Data::Dumper;
+
+my $exit;
+
 BEGIN {
     unless ($ENV{BRCD_USER} && $ENV{BRCD_SWITCH} && $ENV{BRCD_PASS}) {
-        plan skip_all => "BRCD_USER, BRCD_SWITCH and BRCD_PASS not set.";
-        exit(0);
+        plan tests => 2;
+        $exit++;
+        #skip_all => "BRCD_USER, BRCD_SWITCH and BRCD_PASS not set.";
     }
-    
-    plan tests => 11;
-    
+        
     use_ok('Net::Telnet');
     use_ok('Net::Telnet::Brcd');
 };
-use Net::Telnet::Brcd;
+
+exit(0) if ($exit);
+plan tests => 11;
 
 #########################
 
