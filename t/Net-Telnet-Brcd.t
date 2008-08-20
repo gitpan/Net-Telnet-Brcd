@@ -18,6 +18,8 @@ BEGIN {
         plan tests => 2;
         $exit++;
         #skip_all => "BRCD_USER, BRCD_SWITCH and BRCD_PASS not set.";
+    } else {
+        plan tests => 13;
     }
         
     use_ok('Net::Telnet');
@@ -25,7 +27,6 @@ BEGIN {
 };
 
 exit(0) if ($exit);
-plan tests => 11;
 
 #########################
 
