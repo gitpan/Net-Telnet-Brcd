@@ -1,10 +1,7 @@
 Revision history for Perl extension Net::Telnet::Brcd.
 
-0.21 Wed Aug 20 22:21:34 CEST 2008
-    - Change test file to adapt to Perl 5.10
-
-0.20 Wed Aug 20 00:26:14 CEST 2008
-    - Change test file to adapt to Perl 5.10
+1.12 Sat Jul  3 22:05:32 CEST 2010
+	- Add support of FabOS 6.3.1a and 5100 switch.
 
 0.19 Tue Aug 14 18:36:28 DFT 2007
 	- Debug cfgSave, change design of code to be easy portable

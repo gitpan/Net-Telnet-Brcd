@@ -1,5 +1,5 @@
 #!/usr/local/bin/perl
-# @(#)Brcd.pm    1.10
+# @(#)Brcd.pm	1.12
 
 package Net::Telnet::Brcd;
 
@@ -16,7 +16,7 @@ use base qw(Net::Brcd Exporter);
 
 # Variables de gestion du package
 
-our $VERSION      = ('1.10' =~ m/\d/) ? '1.10' * 0.1 : 0.001;
+our $VERSION      = ('1.12' =~ m/\d/) ? '1.12' : 0.001;
 
 # Variables privées
 my $_brcd_prompt     = '\w+:\w+>\s+';
@@ -35,7 +35,7 @@ sub new {
 
 sub proto_connect {
     my ($self, $switch, $user, $pass) = @_;
-
+    
     my $proto = new Net::Telnet (Timeout => ${_brcd_timeout},
                                  Prompt  => "/${_brcd_prompt}/",
                                  );
@@ -47,7 +47,7 @@ sub proto_connect {
         croak __PACKAGE__,": Cannot login as $user/*****: $!\n";
     }
     $self->{PROTO} = $proto;
-
+    
     # Retourne l'objet TELNET
     return $proto;
 }
@@ -55,11 +55,11 @@ sub proto_connect {
 
 sub cmd {
     my ($self, $cmd, @cmd)=@_;
-
+    
     DEBUG && warn "DEBUG: $cmd, @cmd\n";
-
+    
     my $proto = $self->{PROTO} or croak __PACKAGE__, ": Error - Not connected.\n";
-
+    
     if (@cmd) {
         $cmd .= ' "' . join('", "', @cmd) . '"';
     }
@@ -92,12 +92,12 @@ sub cmd {
 
 sub sendcmd {
     my ($self, $cmd) = @_;
-
+    
     my $proto = $self->{PROTO} or croak __PACKAGE__, ": Error - Not connected.\n";
-
+    
     DEBUG && $proto->dump_log("/tmp/telnet.log");
     DEBUG && warn "Execute: $cmd\n";
-
+    
     unless ($proto->print($cmd)) {
         croak __PACKAGE__,": Cannot send '$cmd': $!\n";
     }
@@ -106,7 +106,7 @@ sub sendcmd {
 
 sub sendeof {
     my ($self) = @_;
-
+    
     my $proto = $self->{PROTO} or croak __PACKAGE__, ": Error - Not connected.\n";
 
     unless ($proto->print("\cD")) {
@@ -116,7 +116,7 @@ sub sendeof {
 }
 
 sub readline {
-    my ($self, $arg_ref) = @_;
+    my ($self, $arg_ref) = @_;  
 
     #my ($str, $match) = $proto->waitfor(m/^\s+/);
     my $proto = $self->{PROTO} or croak __PACKAGE__, ": Error - Not connected.\n";
@@ -149,11 +149,11 @@ Net::Telnet::Brcd - Contact BROCADE switch with TELNET
 =head1 SYNOPSIS
 
     use Net::Telnet::Brcd;
-
+    
     my $sw = new Net::Telnet::Brcd;
-
+    
     $sw->connect($sw_name,$user,$pass) or die "\n";
-
+    
     %wwn_port = $sw->switchShow(-bywwn=>1);
     my @lines = $sw->cmd("configShow");
 
@@ -186,12 +186,12 @@ This method is a relay to the new function of Net::Brcd.
 
 =item $ok_no_ok = $obj->proto_connect($ip_switch, $user, $pass);
 
-This method is used in the connect function of Net::Brcd. You could store
+This method is used in the connect function of Net::Brcd. You could store 
 youre specific parameter in object $obj->{PROTO}.
 
 =item @res = $obj->cmd($cmd);
 
-Execute $cmd and return res as ARRAY without \r\n. The command have
+Execute $cmd and return res as ARRAY without \r\n. The command have 
 to send automatically the command continue (space character) and answer
 yes for question to be silent as possible.
 
@@ -233,11 +233,11 @@ at your option, any later version of Perl 5 you may have available.
 
 =item Version
 
-1.10
+1.12
 
 =item History
 
-Created 6/27/2005, Modified 8/17/07 11:10:43
+Created 6/27/2005, Modified 7/3/10 22:04:20
 
 =back
 

@@ -8,30 +8,26 @@
 # change 'tests => 1' to 'tests => last_test_to_print';
 
 use Test::More;
-use constant DEBUG => 0;
+use constant DEBUG => $ENV{DEBUG};
 use Data::Dumper;
-
-my $exit;
-
-BEGIN {
-    unless ($ENV{BRCD_USER} && $ENV{BRCD_SWITCH} && $ENV{BRCD_PASS}) {
-        plan tests => 2;
-        $exit++;
-        #skip_all => "BRCD_USER, BRCD_SWITCH and BRCD_PASS not set.";
-    } else {
-        plan tests => 13;
-    }
-        
-    use_ok('Net::Telnet');
-    use_ok('Net::Telnet::Brcd');
+BEGIN { 
+   use_ok('Net::Telnet');
+   use_ok('Net::Telnet::Brcd');
 };
-
-exit(0) if ($exit);
+use Net::Telnet::Brcd;
 
 #########################
 
 # Insert your test code below, the Test::More module is use()ed here so read
 # its man page ( perldoc Test::More ) for help writing this test script.
+
+unless ($ENV{BRCD_USER} && $ENV{BRCD_SWITCH} && $ENV{BRCD_PASS}) {
+   plan skip_all => "BRCD_USER, BRCD_SWITCH and BRCD_PASS not set.";
+   exit(0);
+}
+
+plan tests => 9;
+
 no warnings;
 
 my $brcd = new Net::Telnet::Brcd;
