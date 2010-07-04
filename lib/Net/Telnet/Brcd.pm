@@ -16,7 +16,7 @@ use base qw(Net::Brcd Exporter);
 
 # Variables de gestion du package
 
-our $VERSION      = ('1.12' =~ m/\d/) ? '1.12' : 0.001;
+our $VERSION      = 1.13;
 
 # Variables privées
 my $_brcd_prompt     = '\w+:\w+>\s+';

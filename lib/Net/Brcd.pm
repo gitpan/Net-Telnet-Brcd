@@ -14,7 +14,7 @@ use constant DEBUG => 0;
 use base qw(Exporter);
 
 # Variables de gestion du package
-our $VERSION      = 0.12;
+our $VERSION      = 1.13;
 
 # Variables privées
 my $_brcd_wwn_re     = join(":",("[0-9A-Za-z][0-9A-Za-z]") x 8);
